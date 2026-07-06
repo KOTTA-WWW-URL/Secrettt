@@ -438,11 +438,66 @@
     gap:4px;
   }
   .msgRow.mine .metaRow{ flex-direction:row-reverse; }
+  .timeCol{
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    gap:2px;
+    margin-bottom:2px;
+  }
+  .readCount{
+    font-size:10px;
+    color:#3d9df6;
+    cursor:pointer;
+    white-space:nowrap;
+    padding:1px 4px;
+    border-radius:6px;
+  }
+  .readCount:active{ background:rgba(61,157,246,0.15); }
   .timeStamp{
     font-size:10px;
     color:#6b7680;
     white-space:nowrap;
-    margin-bottom:2px;
+  }
+  .modalOverlay{
+    display:none;
+    position:fixed;
+    inset:0;
+    background:rgba(0,0,0,0.45);
+    align-items:center;
+    justify-content:center;
+    z-index:60;
+  }
+  .modalBox{
+    background:#fff;
+    border-radius:14px;
+    padding:20px;
+    width:85%;
+    max-width:280px;
+    max-height:70vh;
+    display:flex;
+    flex-direction:column;
+  }
+  .modalTitle{
+    font-weight:bold;
+    font-size:15px;
+    margin-bottom:12px;
+    color:#333;
+  }
+  #readersList{
+    overflow-y:auto;
+    margin-bottom:14px;
+    font-size:14px;
+    color:#444;
+  }
+  .readerRow{
+    padding:8px 4px;
+    border-bottom:1px solid #eee;
+  }
+  .readerEmpty{
+    color:#999;
+    font-size:13px;
+    padding:8px 4px;
   }
   .actionCol{
     display:flex;
@@ -619,9 +674,17 @@
       <input id="textInput" type="text" placeholder="メッセージを入力" autocomplete="off">
       <button id="sendBtn">➤</button>
     </div>
-    <div id="hintBar">「#」＝2人以上いる時だけ見える／「##」＝100件を超えても自動削除されない</div>
+    <div id="hintBar">「#」＝2人以上いる時だけ見える／「##」＝自動削除されない／👀＝既読数（直近10件のみ記録）</div>
   </div>
 
+</div>
+
+<div id="readersModal" class="modalOverlay">
+  <div class="modalBox">
+    <div class="modalTitle">👀 既読したユーザー</div>
+    <div id="readersList"></div>
+    <button class="secondaryBtn" id="closeReadersModal">閉じる</button>
+  </div>
 </div>
 
 <script>
@@ -1005,6 +1068,25 @@ const replyPreview = document.getElementById('replyPreview');
 const replyToName = document.getElementById('replyToName');
 const replyToText = document.getElementById('replyToText');
 const cancelReplyBtn = document.getElementById('cancelReplyBtn');
+const readersModal = document.getElementById('readersModal');
+const readersList = document.getElementById('readersList');
+const closeReadersModal = document.getElementById('closeReadersModal');
+
+closeReadersModal.addEventListener('click', () => { readersModal.style.display = 'none'; });
+readersModal.addEventListener('click', (e) => { if(e.target === readersModal) readersModal.style.display = 'none'; });
+
+function showReaders(id){
+  const msg = messagesCache[id];
+  if(!msg){ return; }
+  const names = Object.values(msg.reads || {});
+  if(names.length === 0){
+    readersList.innerHTML = '<div class="readerEmpty">まだ誰も見ていません</div>';
+  } else {
+    readersList.innerHTML = names.map(n => '<div class="readerRow">' + escapeHtml(n) + '</div>').join('');
+  }
+  readersModal.style.display = 'flex';
+}
+window.showReaders = showReaders;
 
 function getMessagesRef(){
   return currentRoomType === 'openchat'
@@ -1179,6 +1261,30 @@ function sendMessage(){
   textInput.value = "";
 }
 
+const READ_KEEP_COUNT = 10;
+
+function processReadsAndPruning(list){
+  if(!currentRoomType || !myName) return;
+  const msgRef = getMessagesRef();
+  const myKey = safeKey(myName);
+  const nonDeleted = list.filter(m => !m.deleted);
+  const recent = nonDeleted.slice(-READ_KEEP_COUNT);
+  const older = nonDeleted.slice(0, Math.max(0, nonDeleted.length - READ_KEEP_COUNT));
+
+  recent.forEach(msg => {
+    if(msg.name === myName) return; // 自分の投稿は自分の既読にカウントしない
+    if(!msg.reads || !msg.reads[myKey]){
+      msgRef.child(msg.id).child('reads').child(myKey).set(myName);
+    }
+  });
+
+  older.forEach(msg => {
+    if(msg.reads && Object.keys(msg.reads).length > 0){
+      msgRef.child(msg.id).child('reads').remove();
+    }
+  });
+}
+
 async function cleanupOldMessages(msgRef){
   try{
     const snap = await msgRef.once('value');
@@ -1311,22 +1417,37 @@ function renderMessages(){
       bubble.textContent = msg.text;
     }
 
+    const timeCol = document.createElement('div');
+    timeCol.className = 'timeCol';
+
+    if(!msg.deleted){
+      const readerNum = Object.keys(msg.reads || {}).length;
+      const readCountEl = document.createElement('div');
+      readCountEl.className = 'readCount';
+      readCountEl.textContent = '👀' + readerNum;
+      readCountEl.onclick = () => showReaders(msg.id);
+      timeCol.appendChild(readCountEl);
+    }
+
     const timeEl = document.createElement('div');
     timeEl.className = 'timeStamp';
     if(msg.time){
       const d = new Date(msg.time);
       timeEl.textContent = d.getHours().toString().padStart(2,'0') + ':' + d.getMinutes().toString().padStart(2,'0');
     }
+    timeCol.appendChild(timeEl);
 
     bubbleCol.appendChild(bubble);
 
     metaRow.appendChild(actionCol);
     metaRow.appendChild(bubbleCol);
-    metaRow.appendChild(timeEl);
+    metaRow.appendChild(timeCol);
     wrap.appendChild(metaRow);
     row.appendChild(wrap);
     messagesEl.appendChild(row);
   });
+
+  processReadsAndPruning(list);
 
   if(wasNearBottom){
     messagesEl.scrollTop = messagesEl.scrollHeight;
