@@ -1132,7 +1132,7 @@ function enterRoom(type, roomId, password, asCreator){
 
   activeConnectedHandler = db.ref('.info/connected').on('value', (snap) => {
     if(snap.val() === true){
-      activePresenceRef.set(true);
+      activePresenceRef.set(myName);
       activePresenceRef.onDisconnect().remove();
     }
   });
@@ -1252,13 +1252,30 @@ function sendMessage(){
     data.replyTo = { name: replyingTo.name, text: replyingTo.text };
   }
 
-  newRef.set(data).then(() => {
+  newRef.set(data).then(async () => {
+    await markReadForPresentUsers(msgRef, newRef.key);
     cleanupOldMessages(msgRef);
   });
 
   replyingTo = null;
   hideReplyPreview();
   textInput.value = "";
+}
+
+async function markReadForPresentUsers(msgRef, messageId){
+  try{
+    const presenceSnap = await getPresenceRef().once('value');
+    const presenceVal = presenceSnap.val() || {};
+    const myKey = safeKey(myName);
+    const updates = {};
+    Object.entries(presenceVal).forEach(([key, name]) => {
+      if(key === myKey) return; // 送信者自身は既読に含めない
+      updates[key] = name;
+    });
+    if(Object.keys(updates).length > 0){
+      await msgRef.child(messageId).child('reads').update(updates);
+    }
+  }catch(e){ console.error(e); }
 }
 
 const READ_KEEP_COUNT = 10;
