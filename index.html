@@ -138,6 +138,66 @@
     box-shadow:0 1px 3px rgba(0,0,0,0.15);
   }
 
+  /* ---------- room history list ---------- */
+  .historyLabel{
+    font-size:12px;
+    color:#888;
+    margin-bottom:8px;
+    font-weight:bold;
+  }
+  .historyDivider{
+    font-size:11px;
+    color:#aaa;
+    text-align:center;
+    margin:16px 0 4px;
+    position:relative;
+  }
+  .historyDivider::before, .historyDivider::after{
+    content:"";
+    position:absolute;
+    top:50%;
+    width:38%;
+    height:1px;
+    background:#e5e5e5;
+  }
+  .historyDivider::before{ left:0; }
+  .historyDivider::after{ right:0; }
+  .historyItem{
+    display:flex;
+    align-items:center;
+    gap:8px;
+    background:#f7f8f9;
+    border-radius:10px;
+    padding:9px 10px;
+    margin-bottom:8px;
+  }
+  .historyItem .hCode{
+    font-weight:bold;
+    font-size:14px;
+    color:#333;
+    letter-spacing:1px;
+  }
+  .historyItem .hTag{
+    font-size:10px;
+    color:#ff8a3d;
+    border:1px solid #ff8a3d;
+    border-radius:8px;
+    padding:1px 6px;
+    white-space:nowrap;
+  }
+  .historyItem .hSpacer{ flex:1; }
+  .historyItem button{
+    border:none;
+    border-radius:14px;
+    font-size:12px;
+    padding:6px 10px;
+    cursor:pointer;
+    white-space:nowrap;
+  }
+  .historyItem .hEnter{ background:var(--line-green); color:#fff; font-weight:bold; }
+  .historyItem .hDelete{ background:#fdeceb; color:#e0503a; }
+  .historyItem .hRemove{ background:none; color:#aaa; font-size:15px; padding:4px 6px; }
+
   /* ---------- menu screen ---------- */
   #menuScreen .card{ text-align:center; }
   #menuGreeting{
@@ -252,6 +312,30 @@
     font-size:11px;
     cursor:pointer;
     white-space:nowrap;
+  }
+
+  #roomInfoBar{
+    display:none;
+    align-items:center;
+    justify-content:center;
+    gap:8px;
+    background:#fff3e6;
+    border-bottom:1px solid #ffdcb3;
+    padding:7px 10px;
+    flex-wrap:wrap;
+  }
+  #roomInfoBar .infoChip{
+    font-size:11px;
+    color:#a5672a;
+    background:#ffffff;
+    border:1px solid #ffdcb3;
+    border-radius:10px;
+    padding:3px 9px;
+  }
+  #roomInfoBar .infoChip b{
+    color:#333;
+    letter-spacing:1px;
+    margin-left:3px;
   }
 
   #messages{
@@ -494,6 +578,11 @@
   <div id="joinRoomScreen" class="centerScreen">
     <h1>🔑 部屋に入る</h1>
     <div class="card">
+      <div id="roomHistorySection" style="display:none;">
+        <div class="historyLabel">入ったことがある部屋</div>
+        <div id="roomHistoryList"></div>
+        <div class="historyDivider">または番号で入室</div>
+      </div>
       <label for="joinCodeInput">部屋番号（6桁）</label>
       <input id="joinCodeInput" type="text" inputmode="numeric" maxlength="6" placeholder="123456" autocomplete="off">
       <label for="joinPassInput">パスワード</label>
@@ -516,6 +605,10 @@
         <span id="presenceBadge">👀 0人</span>
         <button id="deleteRoomBtn" style="display:none;">部屋を削除</button>
       </div>
+    </div>
+    <div id="roomInfoBar" style="display:none;">
+      <span class="infoChip">番号 <b id="infoCode"></b></span>
+      <span class="infoChip">パスワード <b id="infoPassword"></b></span>
     </div>
     <div id="messages"></div>
     <div id="replyPreview">
@@ -757,7 +850,99 @@ joinRoomBtn.addEventListener('click', () => {
   joinPassInput.value = "";
   joinRoomError.textContent = "";
   show('joinRoomScreen');
+  loadRoomHistory();
 });
+
+const roomHistorySection = document.getElementById('roomHistorySection');
+const roomHistoryList = document.getElementById('roomHistoryList');
+
+async function loadRoomHistory(){
+  roomHistoryList.innerHTML = "";
+  roomHistorySection.style.display = 'none';
+  try{
+    const snap = await db.ref('userRooms/' + safeKey(myName)).once('value');
+    const val = snap.val() || {};
+    const list = Object.values(val).sort((a,b) => (b.lastEntered||0) - (a.lastEntered||0));
+    if(list.length === 0) return;
+
+    roomHistorySection.style.display = 'block';
+    list.forEach(entry => {
+      const item = document.createElement('div');
+      item.className = 'historyItem';
+
+      const codeEl = document.createElement('span');
+      codeEl.className = 'hCode';
+      codeEl.textContent = '#' + entry.code;
+      item.appendChild(codeEl);
+
+      if(entry.isCreator){
+        const tag = document.createElement('span');
+        tag.className = 'hTag';
+        tag.textContent = '作成者';
+        item.appendChild(tag);
+      }
+
+      const spacer = document.createElement('div');
+      spacer.className = 'hSpacer';
+      item.appendChild(spacer);
+
+      if(entry.isCreator){
+        const delBtn = document.createElement('button');
+        delBtn.className = 'hDelete';
+        delBtn.textContent = '削除';
+        delBtn.onclick = () => deleteRoomFromHistory(entry.code);
+        item.appendChild(delBtn);
+      }
+
+      const enterBtn = document.createElement('button');
+      enterBtn.className = 'hEnter';
+      enterBtn.textContent = '入室';
+      enterBtn.onclick = () => quickJoinRoom(entry.code, entry.password, entry.isCreator);
+      item.appendChild(enterBtn);
+
+      const removeBtn = document.createElement('button');
+      removeBtn.className = 'hRemove';
+      removeBtn.textContent = '✕';
+      removeBtn.title = '履歴から消す';
+      removeBtn.onclick = () => removeRoomFromHistory(entry.code);
+      item.appendChild(removeBtn);
+
+      roomHistoryList.appendChild(item);
+    });
+  }catch(e){ console.error(e); }
+}
+
+async function quickJoinRoom(code, password, isCreator){
+  joinRoomError.textContent = "";
+  try{
+    const snap = await db.ref('rooms/' + code).once('value');
+    const roomData = snap.val();
+    if(!roomData){
+      alert('その部屋はすでに削除されています');
+      removeRoomFromHistory(code);
+      return;
+    }
+    enterRoom('room', code, password, roomData.creatorName === myName);
+  }catch(e){
+    console.error(e);
+    alert('入室に失敗しました');
+  }
+}
+
+function removeRoomFromHistory(code){
+  db.ref('userRooms/' + safeKey(myName) + '/' + code).remove().then(loadRoomHistory);
+}
+
+async function deleteRoomFromHistory(code){
+  if(!confirm('この部屋を削除しますか？メッセージも全て消えます。この操作は取り消せません。')) return;
+  try{
+    await db.ref('rooms/' + code).remove();
+    await db.ref('roomMessages/' + code).remove();
+    await db.ref('roomPresence/' + code).remove();
+    await db.ref('userRooms/' + safeKey(myName) + '/' + code).remove();
+  }catch(e){ console.error(e); }
+  loadRoomHistory();
+}
 
 backFromJoinBtn.addEventListener('click', goToMenu);
 
@@ -813,6 +998,9 @@ const backBtn = document.getElementById('backBtn');
 const roomTitle = document.getElementById('roomTitle');
 const roomSub = document.getElementById('roomSub');
 const deleteRoomBtn = document.getElementById('deleteRoomBtn');
+const roomInfoBar = document.getElementById('roomInfoBar');
+const infoCode = document.getElementById('infoCode');
+const infoPassword = document.getElementById('infoPassword');
 const replyPreview = document.getElementById('replyPreview');
 const replyToName = document.getElementById('replyToName');
 const replyToText = document.getElementById('replyToText');
@@ -844,10 +1032,14 @@ function enterRoom(type, roomId, password, asCreator){
     roomTitle.textContent = "🌐 Openchat";
     roomSub.textContent = "みんなが入れる共通のチャット";
     deleteRoomBtn.style.display = 'none';
+    roomInfoBar.style.display = 'none';
   } else {
     roomTitle.textContent = "部屋 #" + roomId;
     roomSub.textContent = isRoomCreator ? "あなたが作成した部屋" : "参加中の部屋";
     deleteRoomBtn.style.display = isRoomCreator ? 'inline-block' : 'none';
+    infoCode.textContent = roomId;
+    infoPassword.textContent = password;
+    roomInfoBar.style.display = 'flex';
   }
 
   show('chatScreen');
@@ -875,7 +1067,20 @@ function enterRoom(type, roomId, password, asCreator){
     renderMessages();
   });
 
+  if(type === 'room'){
+    recordRoomHistory(roomId, password, isRoomCreator);
+  }
+
   textInput.focus();
+}
+
+function recordRoomHistory(roomId, password, isCreator){
+  db.ref('userRooms/' + safeKey(myName) + '/' + roomId).set({
+    code: roomId,
+    password: password,
+    isCreator: isCreator,
+    lastEntered: firebase.database.ServerValue.TIMESTAMP
+  }).catch(e => console.error(e));
 }
 
 function leaveCurrentRoom(){
@@ -909,6 +1114,7 @@ deleteRoomBtn.addEventListener('click', async () => {
     await db.ref('rooms/' + roomIdToDelete).remove();
     await db.ref('roomMessages/' + roomIdToDelete).remove();
     await db.ref('roomPresence/' + roomIdToDelete).remove();
+    await db.ref('userRooms/' + safeKey(myName) + '/' + roomIdToDelete).remove();
   }catch(e){ console.error(e); }
   goToMenu();
 });
