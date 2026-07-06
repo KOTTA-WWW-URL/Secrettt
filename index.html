@@ -1,0 +1,537 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Chat</title>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+<style>
+  :root{
+    --line-green:#06C755;
+    --line-green-dark:#05a748;
+    --bg:#7d9db5;
+    --bubble-mine:#8de37f;
+    --bubble-other:#ffffff;
+    --text-dark:#222;
+  }
+  *{box-sizing:border-box;}
+  html,body{
+    margin:0;padding:0;height:100%;
+    font-family:"Hiragino Kaku Gothic ProN","Hiragino Sans","Yu Gothic",Meiryo,sans-serif;
+    background:var(--bg);
+  }
+  #app{
+    max-width:480px;
+    margin:0 auto;
+    height:100vh;
+    height:100dvh;
+    background:#e6ebee;
+    display:flex;
+    flex-direction:column;
+    position:relative;
+    overflow:hidden;
+    box-shadow:0 0 20px rgba(0,0,0,0.3);
+  }
+
+  /* ---------- login screen ---------- */
+  #loginScreen{
+    flex:1;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    justify-content:center;
+    background:linear-gradient(160deg,var(--line-green),#04a047);
+    padding:24px;
+  }
+  #loginScreen h1{
+    color:#fff;
+    font-size:26px;
+    margin-bottom:28px;
+    letter-spacing:1px;
+  }
+  .loginCard{
+    background:#fff;
+    border-radius:16px;
+    padding:28px 24px;
+    width:100%;
+    max-width:320px;
+    box-shadow:0 8px 24px rgba(0,0,0,0.2);
+  }
+  .loginCard label{
+    display:block;
+    font-size:13px;
+    color:#666;
+    margin:14px 0 6px;
+  }
+  .loginCard input{
+    width:100%;
+    padding:12px 14px;
+    border:1px solid #ddd;
+    border-radius:10px;
+    font-size:15px;
+    outline:none;
+    background:#f7f8f9;
+  }
+  .loginCard input:focus{
+    border-color:var(--line-green);
+    background:#fff;
+  }
+  #loginBtn{
+    margin-top:22px;
+    width:100%;
+    padding:13px;
+    background:var(--line-green);
+    color:#fff;
+    border:none;
+    border-radius:24px;
+    font-size:16px;
+    font-weight:bold;
+    cursor:pointer;
+    transition:background 0.15s;
+  }
+  #loginBtn:active{background:var(--line-green-dark);}
+  #loginError{
+    color:#e0503a;
+    font-size:13px;
+    margin-top:10px;
+    min-height:16px;
+    text-align:center;
+  }
+
+  /* ---------- chat screen ---------- */
+  #chatScreen{
+    flex:1;
+    display:none;
+    flex-direction:column;
+    height:100%;
+  }
+  #header{
+    background:var(--line-green);
+    color:#fff;
+    padding:14px 16px;
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    box-shadow:0 2px 6px rgba(0,0,0,0.15);
+    z-index:2;
+  }
+  #header .title{
+    font-size:17px;
+    font-weight:bold;
+    display:flex;
+    align-items:center;
+    gap:8px;
+  }
+  #presenceBadge{
+    background:rgba(255,255,255,0.25);
+    padding:3px 10px;
+    border-radius:12px;
+    font-size:12px;
+    font-weight:normal;
+  }
+  #logoutBtn{
+    background:none;
+    border:1px solid rgba(255,255,255,0.6);
+    color:#fff;
+    padding:6px 12px;
+    border-radius:16px;
+    font-size:12px;
+    cursor:pointer;
+  }
+
+  #messages{
+    flex:1;
+    overflow-y:auto;
+    padding:14px 10px;
+    display:flex;
+    flex-direction:column;
+    gap:10px;
+    background:
+      linear-gradient(rgba(255,255,255,0.0),rgba(255,255,255,0.0)),
+      var(--bg);
+    background-color:#c9d6df;
+  }
+
+  .msgRow{
+    display:flex;
+    align-items:flex-end;
+    gap:6px;
+    max-width:100%;
+  }
+  .msgRow.mine{ justify-content:flex-end; }
+  .msgRow.other{ justify-content:flex-start; }
+
+  .avatar{
+    width:34px;height:34px;border-radius:50%;
+    background:#a9b6c0;
+    color:#fff;
+    display:flex;align-items:center;justify-content:center;
+    font-size:14px;font-weight:bold;
+    flex-shrink:0;
+  }
+
+  .bubbleWrap{
+    display:flex;
+    flex-direction:column;
+    max-width:68%;
+  }
+  .senderName{
+    font-size:11px;
+    color:#555;
+    margin:0 0 3px 4px;
+  }
+  .bubble{
+    padding:9px 13px;
+    border-radius:16px;
+    font-size:15px;
+    line-height:1.45;
+    word-break:break-word;
+    white-space:pre-wrap;
+    box-shadow:0 1px 1px rgba(0,0,0,0.08);
+    position:relative;
+  }
+  .msgRow.mine .bubble{
+    background:var(--bubble-mine);
+    border-bottom-right-radius:4px;
+    color:var(--text-dark);
+  }
+  .msgRow.other .bubble{
+    background:var(--bubble-other);
+    border-bottom-left-radius:4px;
+    color:var(--text-dark);
+  }
+  .bubble.secretLocked{
+    background:repeating-linear-gradient(45deg,#d7dde1,#d7dde1 6px,#c7ced3 6px,#c7ced3 12px);
+    color:#788089;
+    font-style:italic;
+    font-size:13px;
+  }
+  .bubble.secretUnlocked{
+    border:2px dashed #ff8a3d;
+  }
+  .metaRow{
+    display:flex;
+    align-items:flex-end;
+    gap:4px;
+  }
+  .msgRow.mine .metaRow{ flex-direction:row-reverse; }
+  .timeStamp{
+    font-size:10px;
+    color:#6b7680;
+    white-space:nowrap;
+    margin-bottom:2px;
+  }
+
+  #inputBar{
+    display:flex;
+    align-items:center;
+    gap:8px;
+    padding:10px;
+    background:#f5f6f7;
+    border-top:1px solid #ddd;
+  }
+  #textInput{
+    flex:1;
+    border:1px solid #ddd;
+    border-radius:20px;
+    padding:11px 16px;
+    font-size:15px;
+    outline:none;
+    background:#fff;
+  }
+  #textInput:focus{ border-color:var(--line-green); }
+  #sendBtn{
+    background:var(--line-green);
+    color:#fff;
+    border:none;
+    width:42px;height:42px;
+    border-radius:50%;
+    font-size:18px;
+    cursor:pointer;
+    flex-shrink:0;
+    display:flex;align-items:center;justify-content:center;
+  }
+  #sendBtn:active{ background:var(--line-green-dark); }
+  #sendBtn:disabled{ background:#bbb; cursor:default; }
+
+  #hintBar{
+    font-size:11px;
+    color:#888;
+    text-align:center;
+    padding:4px 0 0;
+    background:#f5f6f7;
+  }
+
+  ::-webkit-scrollbar{ width:6px; }
+  ::-webkit-scrollbar-thumb{ background:rgba(0,0,0,0.15); border-radius:3px; }
+</style>
+</head>
+<body>
+
+<div id="app">
+
+  <!-- LOGIN -->
+  <div id="loginScreen">
+    <h1>💬 Chat</h1>
+    <div class="loginCard">
+      <label for="nameInput">名前</label>
+      <input id="nameInput" type="text" maxlength="20" placeholder="例）たろう" autocomplete="off">
+      <label for="passInput">パスワード</label>
+      <input id="passInput" type="password" maxlength="30" placeholder="パスワード" autocomplete="off">
+      <button id="loginBtn">入る</button>
+      <div id="loginError"></div>
+    </div>
+  </div>
+
+  <!-- CHAT -->
+  <div id="chatScreen">
+    <div id="header">
+      <div class="title">
+        💬 Chat
+        <span id="presenceBadge">👀 0人</span>
+      </div>
+      <button id="logoutBtn">ログアウト</button>
+    </div>
+    <div id="messages"></div>
+    <div id="inputBar">
+      <input id="textInput" type="text" placeholder="メッセージを入力（#で始めると2人以上いる時だけ見える）" autocomplete="off">
+      <button id="sendBtn">➤</button>
+    </div>
+    <div id="hintBar">「#」から始めると、2人以上がこの画面を開いている時だけ内容が見えます</div>
+  </div>
+
+</div>
+
+<script>
+/* ---------------- Firebase 初期化 ---------------- */
+const firebaseConfig = {
+  apiKey: "AIzaSyDQ5gTEDca6XAKbmkcYrQ_HrUXorVFxQyU",
+  authDomain: "secrettt-2611d.firebaseapp.com",
+  databaseURL: "https://secrettt-2611d-default-rtdb.firebaseio.com/",
+  projectId: "secrettt-2611d",
+  storageBucket: "secrettt-2611d.firebasestorage.app",
+  messagingSenderId: "707749019793",
+  appId: "1:707749019793:web:cb9e1bddf0d74f8598ff30"
+};
+firebase.initializeApp(firebaseConfig);
+const db = firebase.database();
+
+/* ---------------- 状態 ---------------- */
+let myName = "";
+let presenceCount = 0;
+let messagesCache = {};
+
+/* ---------------- DOM ---------------- */
+const loginScreen = document.getElementById('loginScreen');
+const chatScreen = document.getElementById('chatScreen');
+const nameInput = document.getElementById('nameInput');
+const passInput = document.getElementById('passInput');
+const loginBtn = document.getElementById('loginBtn');
+const loginError = document.getElementById('loginError');
+const messagesEl = document.getElementById('messages');
+const textInput = document.getElementById('textInput');
+const sendBtn = document.getElementById('sendBtn');
+const presenceBadge = document.getElementById('presenceBadge');
+const logoutBtn = document.getElementById('logoutBtn');
+
+/* ---------------- ログイン処理 ---------------- */
+loginBtn.addEventListener('click', login);
+passInput.addEventListener('keydown', e => { if(e.key === 'Enter') login(); });
+nameInput.addEventListener('keydown', e => { if(e.key === 'Enter') passInput.focus(); });
+
+function safeKey(name){
+  return name.replace(/[.#$/\[\]]/g, '_');
+}
+
+async function login(){
+  const name = nameInput.value.trim();
+  const pass = passInput.value;
+  loginError.textContent = "";
+
+  if(!name || !pass){
+    loginError.textContent = "名前とパスワードを入力してください";
+    return;
+  }
+
+  loginBtn.disabled = true;
+  loginBtn.textContent = "確認中...";
+
+  try{
+    const key = safeKey(name);
+    const snap = await db.ref('users/' + key).once('value');
+    const userData = snap.val();
+
+    if(userData){
+      // 既存ユーザー：パスワード確認
+      if(userData.password !== pass){
+        loginError.textContent = "パスワードが違います";
+        loginBtn.disabled = false;
+        loginBtn.textContent = "入る";
+        return;
+      }
+    } else {
+      // 新規ユーザー：登録
+      await db.ref('users/' + key).set({ name: name, password: pass });
+    }
+
+    myName = name;
+    enterChat();
+
+  }catch(err){
+    console.error(err);
+    loginError.textContent = "エラーが発生しました";
+    loginBtn.disabled = false;
+    loginBtn.textContent = "入る";
+  }
+}
+
+/* ---------------- チャット画面に入る ---------------- */
+function enterChat(){
+  loginScreen.style.display = 'none';
+  chatScreen.style.display = 'flex';
+
+  const myKey = safeKey(myName);
+  const presenceRef = db.ref('presence/' + myKey);
+
+  // 接続状態を見てプレゼンスを管理
+  db.ref('.info/connected').on('value', (snap) => {
+    if(snap.val() === true){
+      presenceRef.set(true);
+      presenceRef.onDisconnect().remove();
+    }
+  });
+
+  // プレゼンス人数を監視
+  db.ref('presence').on('value', (snap) => {
+    const val = snap.val() || {};
+    presenceCount = Object.keys(val).length;
+    presenceBadge.textContent = "👀 " + presenceCount + "人";
+    renderMessages();
+  });
+
+  // メッセージを監視
+  db.ref('messages').limitToLast(200).on('value', (snap) => {
+    messagesCache = snap.val() || {};
+    renderMessages();
+  });
+
+  window.addEventListener('beforeunload', () => {
+    presenceRef.remove();
+  });
+
+  textInput.focus();
+}
+
+/* ---------------- メッセージ送信 ---------------- */
+sendBtn.addEventListener('click', sendMessage);
+textInput.addEventListener('keydown', e => { if(e.key === 'Enter') sendMessage(); });
+
+function sendMessage(){
+  const text = textInput.value.trim();
+  if(!text) return;
+
+  const isSecret = text.startsWith('#');
+  const displayText = isSecret ? text.slice(1).trim() : text;
+
+  if(isSecret && !displayText){
+    textInput.value = "";
+    return;
+  }
+
+  const newRef = db.ref('messages').push();
+  newRef.set({
+    name: myName,
+    text: displayText,
+    secret: isSecret,
+    time: firebase.database.ServerValue.TIMESTAMP
+  });
+
+  textInput.value = "";
+}
+
+/* ---------------- 描画 ---------------- */
+function renderMessages(){
+  const scrollBottom = messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight;
+  const wasNearBottom = scrollBottom < 80;
+
+  const list = Object.values(messagesCache).sort((a,b) => (a.time||0) - (b.time||0));
+
+  messagesEl.innerHTML = "";
+
+  list.forEach(msg => {
+    const isMine = msg.name === myName;
+    const row = document.createElement('div');
+    row.className = 'msgRow ' + (isMine ? 'mine' : 'other');
+
+    if(!isMine){
+      const avatar = document.createElement('div');
+      avatar.className = 'avatar';
+      avatar.textContent = (msg.name || '?').charAt(0);
+      row.appendChild(avatar);
+    }
+
+    const wrap = document.createElement('div');
+    wrap.className = 'bubbleWrap';
+
+    if(!isMine){
+      const nameEl = document.createElement('div');
+      nameEl.className = 'senderName';
+      nameEl.textContent = msg.name;
+      wrap.appendChild(nameEl);
+    }
+
+    const metaRow = document.createElement('div');
+    metaRow.className = 'metaRow';
+
+    const bubble = document.createElement('div');
+    bubble.className = 'bubble';
+
+    if(msg.secret){
+      if(presenceCount >= 2){
+        bubble.classList.add('secretUnlocked');
+        bubble.textContent = "🔓 " + msg.text;
+      } else {
+        bubble.classList.add('secretLocked');
+        bubble.textContent = "🔒 2人以上がこの画面を開くと見えます";
+      }
+    } else {
+      bubble.textContent = msg.text;
+    }
+
+    const timeEl = document.createElement('div');
+    timeEl.className = 'timeStamp';
+    if(msg.time){
+      const d = new Date(msg.time);
+      timeEl.textContent = d.getHours().toString().padStart(2,'0') + ':' + d.getMinutes().toString().padStart(2,'0');
+    }
+
+    metaRow.appendChild(bubble);
+    metaRow.appendChild(timeEl);
+    wrap.appendChild(metaRow);
+    row.appendChild(wrap);
+    messagesEl.appendChild(row);
+  });
+
+  if(wasNearBottom){
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+  }
+}
+
+/* ---------------- ログアウト ---------------- */
+logoutBtn.addEventListener('click', () => {
+  const myKey = safeKey(myName);
+  db.ref('presence/' + myKey).remove();
+  db.ref('messages').off();
+  db.ref('presence').off();
+  db.ref('.info/connected').off();
+  chatScreen.style.display = 'none';
+  loginScreen.style.display = 'flex';
+  loginBtn.disabled = false;
+  loginBtn.textContent = "入る";
+  passInput.value = "";
+  myName = "";
+});
+</script>
+</body>
+</html>
